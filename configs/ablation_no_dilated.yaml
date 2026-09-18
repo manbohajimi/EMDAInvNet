@@ -1,0 +1,5 @@
+# Copy the remaining settings from paper.yaml when running this ablation.
+model:
+  use_emsfa: true
+  use_dilated: false
+

@@ -1,0 +1,38 @@
+# Dataset III transfer-learning recipe. Start with Dataset I best.pt.
+seed: 2026
+output_dir: outputs/measured_finetune
+data:
+  train_manifest: data/manifests/dataset_iii_train.csv
+  val_manifest: data/manifests/dataset_iii_val.csv
+  test_manifest: data/manifests/dataset_iii_test.csv
+  input_key: clean_data
+  target_key: mask
+  input_shape: [64, 64, 64]
+  input_min: -9.0
+  input_max: 9.0
+  target_min: 3.65
+  target_max: 49.92
+  target_normalization: scale
+  target_scale: 49.92
+  target_threshold_phys: 6.0
+  num_workers: 2
+model:
+  in_channels: 1
+  out_channels: 1
+  base_channels: 8
+  use_emsfa: true
+  use_dilated: true
+  attention_reduction: 16
+  spatial_kernel: 7
+  dilation_rates: [1, 2, 4, 8]
+  output_activation: sigmoid
+training:
+  epochs: 100
+  batch_size: 4
+  learning_rate: 0.0001  # engineering default; paper only says "reduced"
+  lr_decay: 0.98
+  optimizer: adam
+  loss: mae
+  amp: true
+  checkpoint_every: 10
+  selection_metric: mae
