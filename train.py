@@ -37,6 +37,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--disable-emsfa", action="store_true")
     parser.add_argument("--disable-dilated", action="store_true")
+    parser.add_argument(
+        "--dilated-branch-block", choices=("conv", "conv_in_lrelu")
+    )
+    parser.add_argument(
+        "--residual-order", choices=("add_then_activate", "activate_then_add")
+    )
+    parser.add_argument(
+        "--transition-block", choices=("conv", "conv_in_lrelu")
+    )
     return parser.parse_args()
 
 
@@ -149,6 +158,12 @@ def main() -> None:
         config["model"]["use_emsfa"] = False
     if args.disable_dilated:
         config["model"]["use_dilated"] = False
+    if args.dilated_branch_block:
+        config["model"]["dilated_branch_block"] = args.dilated_branch_block
+    if args.residual_order:
+        config["model"]["residual_order"] = args.residual_order
+    if args.transition_block:
+        config["model"]["transition_block"] = args.transition_block
     set_seed(int(config.get("seed", 2026)))
 
     device = torch.device(args.device)

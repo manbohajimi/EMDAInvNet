@@ -125,14 +125,39 @@ class EMSFA(nn.Module):
 class DilatedBlock(nn.Module):
     """Parallel atrous context aggregation with residual fusion, (10)-(11)."""
 
-    def __init__(self, channels: int, rates: Sequence[int] = (1, 2, 4, 8)) -> None:
+    def __init__(
+        self,
+        channels: int,
+        rates: Sequence[int] = (1, 2, 4, 8),
+        *,
+        branch_block: str = "conv_in_lrelu",
+        residual_order: str = "add_then_activate",
+    ) -> None:
         super().__init__()
         if not rates:
             raise ValueError("at least one dilation rate is required")
-        self.branches = nn.ModuleList(
-            ConvINLReLU(channels, channels, dilation=int(rate))
-            for rate in rates
-        )
+        if branch_block not in {"conv", "conv_in_lrelu"}:
+            raise ValueError("branch_block must be 'conv' or 'conv_in_lrelu'")
+        if residual_order not in {"add_then_activate", "activate_then_add"}:
+            raise ValueError(
+                "residual_order must be 'add_then_activate' or 'activate_then_add'"
+            )
+        self.branches = nn.ModuleList()
+        for rate in rates:
+            if branch_block == "conv_in_lrelu":
+                branch = ConvINLReLU(channels, channels, dilation=int(rate))
+            else:
+                branch = nn.Conv3d(
+                    channels,
+                    channels,
+                    kernel_size=3,
+                    padding=int(rate),
+                    dilation=int(rate),
+                    bias=False,
+                )
+            self.branches.append(branch)
+        self.branch_block = branch_block
+        self.residual_order = residual_order
         merged_channels = channels * len(rates)
         self.fusion = nn.Conv3d(merged_channels, channels, kernel_size=1, bias=False)
         self.norm = nn.InstanceNorm3d(channels, affine=False)
@@ -140,7 +165,12 @@ class DilatedBlock(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         merged = torch.cat([branch(x) for branch in self.branches], dim=1)
-        return self.activation(self.norm(self.fusion(merged)) + x)
+        fused = self.norm(self.fusion(merged))
+        if self.residual_order == "activate_then_add":
+            # Literal reading of Eq. (11).
+            return self.activation(fused) + x
+        # Empirically stable interpretation used by the successful Dataset-II run.
+        return self.activation(fused + x)
 
 
 class FeatureEnhancementUnit(nn.Module):
@@ -156,6 +186,9 @@ class FeatureEnhancementUnit(nn.Module):
         reduction: int = 16,
         spatial_kernel: int = 7,
         rates: Sequence[int] = (1, 2, 4, 8),
+        dilated_branch_block: str = "conv_in_lrelu",
+        residual_order: str = "add_then_activate",
+        transition_block: str = "conv_in_lrelu",
     ) -> None:
         super().__init__()
         # Fig. 2 labels the transition as a 1x1 convolution expanding the
@@ -173,8 +206,26 @@ class FeatureEnhancementUnit(nn.Module):
             if use_emsfa
             else ConvINLReLU(in_channels, compact_channels)
         )
-        self.transition = ConvINLReLU(compact_channels, out_channels, kernel_size=1)
-        self.context = DilatedBlock(out_channels, rates) if use_dilated else nn.Identity()
+        if transition_block == "conv_in_lrelu":
+            self.transition = ConvINLReLU(
+                compact_channels, out_channels, kernel_size=1
+            )
+        elif transition_block == "conv":
+            self.transition = nn.Conv3d(
+                compact_channels, out_channels, kernel_size=1, bias=False
+            )
+        else:
+            raise ValueError("transition_block must be 'conv' or 'conv_in_lrelu'")
+        self.context = (
+            DilatedBlock(
+                out_channels,
+                rates,
+                branch_block=dilated_branch_block,
+                residual_order=residual_order,
+            )
+            if use_dilated
+            else nn.Identity()
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         return self.context(self.transition(self.local(x)))
@@ -226,6 +277,9 @@ class EMDAInvNet(nn.Module):
         spatial_kernel: int = 7,
         dilation_rates: Sequence[int] = (1, 2, 4, 8),
         output_activation: str = "sigmoid",
+        dilated_branch_block: str = "conv_in_lrelu",
+        residual_order: str = "add_then_activate",
+        transition_block: str = "conv_in_lrelu",
     ) -> None:
         super().__init__()
         if base_channels < 2 or base_channels % 2:
@@ -237,6 +291,9 @@ class EMDAInvNet(nn.Module):
             reduction=attention_reduction,
             spatial_kernel=spatial_kernel,
             rates=dilation_rates,
+            dilated_branch_block=dilated_branch_block,
+            residual_order=residual_order,
+            transition_block=transition_block,
         )
         self.stem = ConvINLReLU(in_channels, c)
         self.down1 = DownBlock(c, 3 * c, **common)
@@ -245,7 +302,12 @@ class EMDAInvNet(nn.Module):
         self.down4 = DownBlock(12 * c, 24 * c, **common)
         self.bridge = nn.Sequential(
             ConvINLReLU(24 * c, 32 * c),
-            DilatedBlock(32 * c, dilation_rates),
+            DilatedBlock(
+                32 * c,
+                dilation_rates,
+                branch_block=dilated_branch_block,
+                residual_order=residual_order,
+            ),
             ChannelSpatialAttention3d(32 * c, attention_reduction, spatial_kernel),
         )
         self.up4 = UpBlock(32 * c, 12 * c, 12 * c, **common)

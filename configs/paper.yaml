@@ -28,12 +28,16 @@ model:
   spatial_kernel: 7               # engineering_default
   dilation_rates: [1, 2, 4, 8]    # source: Eq. (10)
   output_activation: sigmoid      # source: Fig. 2
+  # Dataset-II validated interpretation; see README for the Eq. (9)-(11) ambiguity.
+  dilated_branch_block: conv_in_lrelu
+  residual_order: add_then_activate
+  transition_block: conv_in_lrelu
 
 training:
   epochs: 100                     # source: Section III-A
   batch_size: 4                   # source: Section III-A
   learning_rate: 0.001            # source: Section III-A
-  lr_decay: 0.98                  # source: Section III-A
+  lr_decay: 0.98                  # value: paper; per-epoch ExponentialLR: engineering_default
   optimizer: adam                 # source: Section III-A
   loss: mae                       # source: Section II-B
   amp: true

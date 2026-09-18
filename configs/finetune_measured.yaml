@@ -26,6 +26,9 @@ model:
   spatial_kernel: 7
   dilation_rates: [1, 2, 4, 8]
   output_activation: sigmoid
+  dilated_branch_block: conv_in_lrelu
+  residual_order: add_then_activate
+  transition_block: conv_in_lrelu
 training:
   epochs: 100
   batch_size: 4

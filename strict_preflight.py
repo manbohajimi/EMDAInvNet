@@ -73,7 +73,8 @@ def main() -> None:
     )
     if is_paper_default and parameter_count != expected_parameters:
         raise AssertionError(
-            f"paper model parameter contract changed: {parameter_count:,} != "
+            f"reproduction implementation parameter contract changed: "
+            f"{parameter_count:,} != "
             f"{expected_parameters:,}"
         )
     expected_shape = tuple(int(value) for value in data_config["input_shape"])

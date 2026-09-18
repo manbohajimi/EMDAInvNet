@@ -1,7 +1,7 @@
 # Reproduction config for Kong et al., IEEE Sensors Journal 2026.
 # source: explicit in the paper; engineering_default: paper does not disclose it.
 #
-# VARIANT: noisy input (2026-09-17).
+# VARIANT: noisy input (2026-09-18).
 # EMDAInvNet is end-to-end on raw 3-D GPR data, so the network input must be
 # `data/<id>.mat` key `noisy_data`, NOT `mask1/<id>.mat` key `clean_data`.
 # Everything else is byte-identical to configs/paper.yaml so the clean-vs-noisy
@@ -34,12 +34,15 @@ model:
   spatial_kernel: 7               # engineering_default
   dilation_rates: [1, 2, 4, 8]    # source: Eq. (10)
   output_activation: sigmoid      # source: Fig. 2
+  dilated_branch_block: conv_in_lrelu
+  residual_order: add_then_activate
+  transition_block: conv_in_lrelu
 
 training:
   epochs: 100                     # source: Section III-A
   batch_size: 4                   # source: Section III-A
   learning_rate: 0.001            # source: Section III-A
-  lr_decay: 0.98                  # source: Section III-A
+  lr_decay: 0.98                  # value: paper; per-epoch ExponentialLR: engineering_default
   optimizer: adam                 # source: Section III-A
   loss: mae                       # source: Section II-B
   amp: true

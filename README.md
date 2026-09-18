@@ -4,10 +4,13 @@
 Permittivity Inversion of Underground Pipelines**, IEEE Sensors Journal,
 2026, DOI: `10.1109/JSEN.2026.3687430` 的 clean-room PyTorch 复现。
 
-作者没有在论文中给出可确认的 EMDAInvNet 代码仓库。本工程严格实现论文明确披露的
-Fig. 2、式 (3)-(17) 和 Section III 训练设置；未披露项集中保存在
-`configs/paper.yaml`，并用 `engineering_default` 标注。它可以用于复现实验流程和
-消融趋势，但在拿到作者原始实现与 Dataset I 之前，不承诺逐位复现 Table II/III。
+作者没有在论文中给出可确认的 EMDAInvNet 代码仓库。本工程依据公开的 Fig. 2、
+式 (3)-(17) 和 Section III 进行 clean-room PyTorch 复现。图、公式和可训练性冲突时，
+整体网络拓扑以 Fig. 2 为依据，模块细节同时记录公式字面版和在公开 Dataset II 上验证
+可训练的解释。论文未披露的
+基础通道、attention reduction、spatial kernel、上采样实现、归一化方式及 LR decay
+执行频率采用显式工程默认值。因此本工程可用于复现实验流程和消融趋势，但不宣称等同于
+作者未公开的原始实现，也不承诺逐位复现 Table II/III。
 
 ## 已实现内容
 
@@ -15,7 +18,7 @@ Fig. 2、式 (3)-(17) 和 Section III 训练设置；未披露项集中保存在
 - Fig. 2 的通道比例 `C -> 3C -> 6C -> 12C -> 24C -> 32C`；
 - EMSFA：三层串行 `3x3x3 Conv + InstanceNorm + LeakyReLU`、多尺度拼接、
   `1x1x1` 融合、channel attention、spatial attention；
-- DilatedBlock：膨胀率 `1/2/4/8` 的并行 3-D 卷积、融合与残差；
+- DilatedBlock：膨胀率 `1/2/4/8` 的纯 3-D 卷积分支，统一融合、IN、LReLU 后加残差；
 - 论文消融开关 `use_emsfa`、`use_dilated`；
 - Adam、MAE、初始学习率 `1e-3`、每 epoch 乘 `0.98`、batch size 4、100 epochs；
 - MAE、MSE、SSIM、MAPE、IoU、Dice；
@@ -48,6 +51,25 @@ python smoke_test.py
 - `InstanceNorm3d` 按 PyTorch 标准实现使用 `affine=False`；论文未说明 learnable affine；
 - 保留 Fig. 2 明确画出的输出 Sigmoid；
 - Dataset II 改用正确物理范围 `[4,27]` 做 min-max，不再错误混入 Dataset III 的 49.92。
+
+## 2026-09-18 公式字面版回退
+
+曾按式（9）—（11）的字面形式同时做过三项修改：dilation branch 改成裸卷积、
+transition 改成裸卷积、residual 改为激活后相加。真实 Dataset II/noisy_data 的 100-epoch
+任务在前 23 轮完全塌缩，IoU 始终为 0，`pred_std` 降到约 `5.6e-9`。三项单变量短跑
+也没有任何一项能单独恢复学习，其中 transition 的 IN/LReLU 对稳定性影响最大。
+
+因此默认实现恢复为已在相同数据、seed 和训练配置上验证成功的组合：
+
+```text
+dilation branch: Conv + IN + LReLU
+transition:       1x1 Conv + IN + LReLU
+residual:         LReLU(IN(Fusion(...)) + T)
+```
+
+该组合在 40 epochs 的公开 Dataset II noisy 输入实验中达到 IoU `0.8012`、Dice `0.8862`；
+其最佳 checkpoint 已在当前代码中重新加载并得到相同指标。配置仍保留三个显式开关，
+可复现实验过的公式字面版，但它不再作为默认 baseline。
 
 完整训练前先在服务器用真实 Dataset II 做严格预检：
 
@@ -160,6 +182,8 @@ python train.py --config configs\paper.yaml --output-dir outputs\ablation_full
 - Dataset III 的“reduced learning rate”没有数值；
 - Dataset I 的模型随机放置、方向分布、time-zero 算法和 gprMax `.in` 文件未公开；
 - Fig. 2 与文字给出通道比例和模块次序，但没有逐层参数表。
+- `3D Upsample` 的具体算子未报告；当前 `ConvTranspose3d` 是工程默认值。
+- 学习率衰减只报告了 0.98，未报告执行频率；当前按每 epoch 衰减解释。
 
 因此，当前最可验证的复现目标是：代码拓扑与论文一致、Dataset II 上优于 3DInvNet
 基线、两个模块的消融趋势与 Table III 一致。精确数值复现需要作者代码或补充材料。

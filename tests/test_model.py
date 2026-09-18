@@ -35,7 +35,37 @@ def test_paper_channel_contracts() -> None:
     # Fig. 2: each EMSFA convolution uses C channels; the transition expands
     # the compact feature to 3C; every Eq. (10) atrous branch preserves width.
     assert model.down1.enhance.local.conv1[0].out_channels == 2
+    assert isinstance(model.down1.enhance.transition, torch.nn.Sequential)
     assert model.down1.enhance.transition[0].out_channels == 6
-    assert all(branch[0].out_channels == 6 for branch in model.down1.enhance.context.branches)
+    assert all(
+        isinstance(branch, torch.nn.Sequential) and branch[0].out_channels == 6
+        for branch in model.down1.enhance.context.branches
+    )
     assert not any(module.affine for module in model.modules() if isinstance(module, torch.nn.InstanceNorm3d))
     assert isinstance(model.bridge[1], DilatedBlock)
+
+
+def _identity_dilated_block(residual_order: str) -> DilatedBlock:
+    block = DilatedBlock(1, rates=(1,), residual_order=residual_order)
+    block.branches = torch.nn.ModuleList([torch.nn.Identity()])
+    block.fusion = torch.nn.Identity()
+    block.norm = torch.nn.Identity()
+    return block
+
+
+def test_default_dilated_residual_activates_after_addition() -> None:
+    block = _identity_dilated_block("add_then_activate")
+    value = -torch.ones(1, 1, 2, 2, 2)
+    expected = torch.nn.functional.leaky_relu(
+        value + value, negative_slope=0.01, inplace=False
+    )
+    assert torch.allclose(block(value), expected)
+
+
+def test_literal_equation_variant_adds_residual_after_activation() -> None:
+    block = _identity_dilated_block("activate_then_add")
+    value = -torch.ones(1, 1, 2, 2, 2)
+    expected = torch.nn.functional.leaky_relu(
+        value, negative_slope=0.01, inplace=False
+    ) + value
+    assert torch.allclose(block(value), expected)
